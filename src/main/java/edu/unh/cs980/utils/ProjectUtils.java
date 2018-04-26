@@ -15,10 +15,17 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.CharArraySet;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 public class ProjectUtils {
 	// This class will contain some common utility methods for Project.
+	public static Gson gson;
+
+	private static final Logger logger = Logger.getLogger(ProjectUtils.class);
 
 	// Create custom stop words for lucene.
 	public static CharArraySet getCustomStopWordSet() {
@@ -53,15 +60,15 @@ public class ProjectUtils {
 
 	public static void writeToFile(String filePath, ArrayList<String> runfileStrings) {
 		String fullpath = filePath;
-		System.out.println("Writting run file: " + filePath);
+		logger.info("Writting run file: " + filePath);
 		try (FileWriter runfile = new FileWriter(new File(fullpath))) {
 			for (String line : runfileStrings) {
 				runfile.write(line + "\n");
 			}
-			System.out.println("Done.");
+			logger.info("Done.");
 			runfile.close();
 		} catch (IOException e) {
-			System.out.println("Could not open " + fullpath);
+			logger.error("Could not open " + fullpath);
 		}
 	}
 
@@ -96,5 +103,13 @@ public class ProjectUtils {
 		}
 
 		return sortedMap;
+	}
+
+	public static Gson getGsonStringBuilder() {
+		if (gson == null) {
+			// Create gson to exclude Non-expose fields in entity class.
+			gson = new GsonBuilder().create();
+		}
+		return gson;
 	}
 }

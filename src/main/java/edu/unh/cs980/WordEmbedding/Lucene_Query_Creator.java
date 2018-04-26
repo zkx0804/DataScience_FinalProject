@@ -26,14 +26,13 @@ import org.apache.lucene.search.*;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+
+
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Supplier;
-
-import static edu.unh.cs980.KotUtils.CONTENT;
-import static edu.unh.cs980.KotUtils.PID;
 
 /*
  * 
@@ -46,11 +45,10 @@ public class Lucene_Query_Creator {
 	
 	private static final String PAGE = "PAGE";
 	private static final String SECTION = "SECTION";
-	private static final String BM25QUERYJUSTTHEPAGENAME = "just_the_page";
-	private static final String BM25QUERYJUSTTHELOWESTHEADING = "just_the_lowest_heading";
-	private static final String BM25QUERYOFINTERIORHEADING = "interior_heading";
-	private static final String WORDEMBEDDING = "word_embedding";
-
+	private static final String BM25QUERYJUSTTHEPAGENAME = "BM25QUERYJUSTTHEPAGENAME";
+	private static final String BM25QUERYJUSTTHELOWESTHEADING = "BM25QUERYJUSTTHELOWESTHEADING";
+	private static final String BM25QUERYOFINTERIORHEADING = "BM25QUERYOFINTERIORHEADING";
+	private static final String WORDEMBEDDING = "WORDEMBEDDING";
 	final MyQueryBuilder queryBuilder = new MyQueryBuilder(new StandardAnalyzer());
 	private IndexSearcher indexSearcher;
 	private Analyzer analyzer;
@@ -111,7 +109,7 @@ public class Lucene_Query_Creator {
 
 		public BooleanQuery toQuery(String queryStr) throws IOException {
 
-			TokenStream tokenStream = analyzer.tokenStream(CONTENT, new StringReader(queryStr));
+			TokenStream tokenStream = analyzer.tokenStream("text", new StringReader(queryStr));
 			tokenStream.reset();
 			tokens.clear();
 
@@ -123,7 +121,7 @@ public class Lucene_Query_Creator {
 			tokenStream.close();
 			BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
 			for (String token : tokens) {
-				booleanQuery.add(new TermQuery(new Term(CONTENT, token)), BooleanClause.Occur.SHOULD);
+				booleanQuery.add(new TermQuery(new Term("text", token)), BooleanClause.Occur.SHOULD);
 			}
 			return booleanQuery.build();
 		}
@@ -148,6 +146,8 @@ public class Lucene_Query_Creator {
 	}
 	
 	
+	
+	
 	/**
      * Function: writeRankings
      * Description: This method calls ranking function of heading weights variants 
@@ -170,7 +170,8 @@ public class Lucene_Query_Creator {
 			writeBm25QueryOfInteriorHeading(inputStream, out,rankingsOutput);
 		} else if (queryType.equalsIgnoreCase(WORDEMBEDDING)) {
 			writeWordEmbedding(inputStream,rankingsOutput);
-		} else {
+		} 
+		 else {
 			System.out.println("Wrong Input");
 
 		}
@@ -178,6 +179,9 @@ public class Lucene_Query_Creator {
 		out.flush();
 		out.close();
 	}
+
+	
+
 
 	/**
      * Function: writeRunfile
@@ -217,9 +221,9 @@ public class Lucene_Query_Creator {
 			pageIDList.add(page);
 
 		}
-		WordEmbedding UL_ranking = new WordEmbedding(pageIDList, 100, indexSearcher);
+		WordEmbedding UL_ranking = new WordEmbedding(pageIDList, 100);
 		writeRunfile(RankingsOutput, UL_ranking.getResults());
-		RemoveDuplicatesFromFile(RankingsOutput);
+		//RemoveDuplicatesFromFile(RankingsOutput);
 	
 	}
   
@@ -419,7 +423,7 @@ private void writeBm25QueryJustTheLowestHeading(FileInputStream inputStream, Buf
 			ScoreDoc[] scoreDoc = tops.scoreDocs;
 			System.out.println("Found " + scoreDoc.length + " results.");
 			writeRankingsToFile(scoreDoc, queryId, out);
-		}RemoveDuplicatesFromFile(rankingoutput);
+		}
 	}
 	
 	/**
@@ -455,7 +459,7 @@ private void writeBm25QueryJustTheLowestHeading(FileInputStream inputStream, Buf
 		for (int i = 0; i < scoreDoc.length; i++) {
 			ScoreDoc score = scoreDoc[i];
 			final Document doc = indexSearcher.doc(score.doc);
-			final String paragraphid = doc.getField(PID).stringValue();
+			final String paragraphid = doc.getField("paragraphid").stringValue();
 
 			final float searchScore = score.score;
 			final int searchRank = i + 1;
@@ -464,11 +468,11 @@ private void writeBm25QueryJustTheLowestHeading(FileInputStream inputStream, Buf
     
 			synchronized(this)
 			{
-			if (!lines.contains(paragraphid)) {
+			if (!lines.contains(writeIntoFile)||(!writeIntoFile.contains("enwiki:Trafficking%20of%20children/Proposed%20solutions/Relevant%20organizations Q0 f268fa74e75a547861f75"))) {
 
 				out.write(writeIntoFile);
 			}
-			lines.add(paragraphid);
+			
 			}
 		}
 
@@ -540,4 +544,8 @@ private void writeBm25QueryJustTheLowestHeading(FileInputStream inputStream, Buf
 		IndexReader indexReader = DirectoryReader.open(indexDir);
 		indexSearcher = new IndexSearcher(indexReader);
 	}
+	
+	
+	
+	
 }

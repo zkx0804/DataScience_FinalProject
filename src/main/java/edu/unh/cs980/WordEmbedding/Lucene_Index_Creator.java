@@ -23,9 +23,6 @@ import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.StreamSupport;
 
-import static edu.unh.cs980.KotUtils.CONTENT;
-import static edu.unh.cs980.KotUtils.PID;
-
 public class Lucene_Index_Creator {
 	private static final String NORMAL = "NORMAL";
 	
@@ -66,8 +63,8 @@ public class Lucene_Index_Creator {
     private Document createDocument(Data.Paragraph p) {
         final Document doc = new Document();
         final String content = p.getTextOnly();
-        doc.add(new TextField(CONTENT, content, Field.Store.YES));
-        doc.add(new StringField(PID, p.getParaId(), Field.Store.YES));
+        doc.add(new TextField("text", content, Field.Store.YES));
+        doc.add(new StringField("paragraphid", p.getParaId(), Field.Store.YES));
 
         // index stored entities
         for (String entity : p.getEntitiesOnly()) {

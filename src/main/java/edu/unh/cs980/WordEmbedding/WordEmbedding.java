@@ -14,7 +14,6 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
-import info.debatty.java.stringsimilarity.Cosine;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -33,9 +32,6 @@ import org.apache.lucene.search.similarities.SimilarityBase;
 import org.apache.lucene.store.FSDirectory;
 import edu.unh.cs.treccar_v2.Data;
 
-import static edu.unh.cs980.KotUtils.CONTENT;
-import static edu.unh.cs980.KotUtils.PID;
-
 class WordEmbedding {
 	QueryParser qp;
 	IndexSearcher is;
@@ -51,13 +47,13 @@ class WordEmbedding {
 	 * @param pagelist
 	 *            the list of pages to rank
 	 */
-	WordEmbedding(ArrayList<Data.Page> pagelist, int numResults, IndexSearcher indexSearcher) throws IOException {
+	WordEmbedding(ArrayList<Data.Page> pagelist, int numResults) throws IOException {
 		runFileParameter = new ArrayList<>();
 		results = new HashMap<>();
 		maxResults = numResults;
-		Cosine c=new Cosine();
+		Cosine c=new Cosine(1); // Bindu, fix this
 		qp = new QueryParser("text", new StandardAnalyzer());
-		is = indexSearcher;
+		is = new IndexSearcher(DirectoryReader.open((FSDirectory.open(new File(MainClass.INDEX_DIRECTORY).toPath()))));
 		ir = is.getIndexReader();
 		float sumTotalTermFreq = ir.getSumTotalTermFreq("text");
 
@@ -83,7 +79,7 @@ class WordEmbedding {
 				results.put(queryId, new HashMap<String, Float>());
 			}
 			for (String term : page.getPageName().split(" ")) {
-				Term t = new Term(CONTENT, term);
+				Term t = new Term("text", term);
 				TermQuery tQuery = new TermQuery(t);
 
 				TopDocs topDocs = is.search(tQuery, maxResults);
@@ -92,8 +88,8 @@ class WordEmbedding {
 				for (int i = 0; i < topDocs.scoreDocs.length; i++) {
 
 					Document doc = is.doc(scores[i].doc);
-					String paraId = doc.get(PID);
-					String docBody = doc.get(CONTENT);
+					String paraId = doc.get("paragraphid");
+					String docBody = doc.get("text");
 					ArrayList<String> wordembedding_list = analyzeByWordEmbedding(docBody);
 					int size_of_voc = getSizeOfVocabulary(wordembedding_list);
 					int size_of_doc = wordembedding_list.size();
@@ -165,7 +161,7 @@ class WordEmbedding {
 
 		ArrayList<String> strList = new ArrayList<String>();
 		Analyzer analyzer = new WordEmbeddingAnalyzer();
-		TokenStream tokenizer = analyzer.tokenStream(CONTENT, inputStr);
+		TokenStream tokenizer = analyzer.tokenStream("content", inputStr);
 
 		CharTermAttribute charTermAttribute = tokenizer.addAttribute(CharTermAttribute.class);
 		tokenizer.reset();

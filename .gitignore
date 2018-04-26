@@ -13,7 +13,6 @@
 # git has its own built in compression methods
 *.7z
 *.dmg
-*.gz
 *.iso
 *.jar
 *.rar
@@ -41,6 +40,7 @@ Thumbs.db
 DataSet/
 target/
 index/
+*_index/
 .idea
 
 

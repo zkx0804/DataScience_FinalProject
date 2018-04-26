@@ -1,9 +1,13 @@
 package edu.unh.cs980.variations;
 
+import static edu.unh.cs980.KotUtils.CONTENT;
+import static edu.unh.cs980.KotUtils.PID;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 
+import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
@@ -16,10 +20,10 @@ import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.store.FSDirectory;
 
-import static edu.unh.cs980.KotUtils.CONTENT;
-import static edu.unh.cs980.KotUtils.PID;
-
 public class Default_BM25_variation {
+
+	private static final Logger logger = Logger.getLogger(Default_BM25_variation.class);
+
 	public static ArrayList<String> getSearchResult(ArrayList<String> queriesStr, int max_result, String index_dir)
 			throws IOException, ParseException {
 		ArrayList<String> runFileStr = new ArrayList<String>();
@@ -42,14 +46,23 @@ public class Default_BM25_variation {
 				float rankScore = score.score;
 				int rank = i + 1;
 
+				if (i == 0) {
+					String[] spotlight = doc.getValues("spotlight");
+					String content = doc.getField("text").stringValue();
+					for (int j = 0; j < spotlight.length; j++) {
+						logger.debug(spotlight[j]);
+					}
+					logger.debug(content);
+				}
+
 				String runStr = "enwiki:" + queryStr.replace(" ", "%20") + " Q0 " + paraId + " " + rank + " "
 						+ rankScore + " BM25";
 				if (runFileStr.contains(runStr)) {
 					duplicate++;
-					// System.out.println("Found duplicate: " + runStr);
 				} else {
 					runFileStr.add(runStr);
 				}
+				logger.debug("Found " + duplicate + " duplicates");
 			}
 		}
 

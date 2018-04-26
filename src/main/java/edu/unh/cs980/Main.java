@@ -1,11 +1,15 @@
 package edu.unh.cs980;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-import edu.unh.cs980.ranklib.KotlinRankLibTrainer;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ScoreDoc;
@@ -13,14 +17,27 @@ import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.similarities.BM25Similarity;
 
 import co.nstant.in.cbor.CborException;
+import edu.unh.cs.treccar_v2.Data;
+import edu.unh.cs.treccar_v2.read_data.DeserializeData;
+import edu.unh.cs980.WordEmbedding.Contextual_QueryExpansion;
+import edu.unh.cs980.WordEmbedding.EntitySimilarity;
 import edu.unh.cs980.WordEmbedding.Lucene_Query_Creator;
-import edu.unh.cs980.ranklib.KotlinRanklibFormatter;
-import edu.unh.cs980.ranklib.NormType;
+import edu.unh.cs980.WordEmbedding.ParaRankWithDepParser;
+import edu.unh.cs980.WordEmbedding.ParagraphSimilarity;
+import edu.unh.cs980.WordEmbedding.ParagraphWithWordnet;
+import edu.unh.cs980.WordEmbedding.TfIdfSimilarity;
+import edu.unh.cs980.WordEmbedding.TopktreeContextualSimilarity;
+import edu.unh.cs980.experiment.LaunchSparqlDownloader;
+import edu.unh.cs980.experiment.LaunchTopicDecomposer;
+import edu.unh.cs980.experiment.MasterExperiment;
+import edu.unh.cs980.language.KotlinAbstractExtractor;
 import edu.unh.cs980.utils.ProjectUtils;
 import edu.unh.cs980.utils.QueryBuilder;
+import edu.unh.cs980.variations.Doc_RM_QE_variation;
 import edu.unh.cs980.variations.FreqBigram_variation;
+import edu.unh.cs980.variations.NLP_query_variation;
 import edu.unh.cs980.variations.QueryExpansion_variation;
-import kotlin.jvm.functions.Function3;
+import edu.unh.cs980.variations.Query_RM_QE_variation;
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
@@ -30,9 +47,11 @@ import net.sourceforge.argparse4j.inf.Subparsers;
 
 public class Main {
 
+	private static final Logger logger = Logger.getLogger(Main.class);
+
 	// Used as a wrapper around a static method: will call method and pass
 	// argument parser's parameters to it
-	private static class Exec {
+	public static class Exec {
 		private Consumer<Namespace> func;
 
 		Exec(Consumer<Namespace> funcArg) {
@@ -42,6 +61,37 @@ public class Main {
 		void run(Namespace params) {
 			func.accept(params);
 		}
+	}
+
+	public static Exec buildExec(Consumer<Namespace> consumer) {
+		return new Exec(consumer);
+	}
+
+	/****
+	 * @Function:getAllPageFromPath
+	 * @param indexLocation
+	 * @param queryLocation
+	 * @param rankingOutputLocation
+	 * @return pagelist
+	 */
+
+	private static ArrayList<Data.Page> getAllPageFromPath(String indexLocation, String queryLocation,
+			String rankingOutputLocation) {
+		ArrayList<Data.Page> pageList = new ArrayList<Data.Page>();
+
+		try {
+
+			FileInputStream fis = new FileInputStream(new File(queryLocation));
+			for (Data.Page page : DeserializeData.iterableAnnotations(fis)) {
+
+				pageList.add(page);
+
+			}
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			logger.error(e.getMessage());
+		}
+		return pageList;
 	}
 
 	public static ArgumentParser createArgParser() {
@@ -62,24 +112,56 @@ public class Main {
 		indexParser.addArgument("--out").setDefault("index")
 				.help("Directory name to create for Lucene index (default: index)");
 
-		// You can add more subcommands below by calling subparsers.addparser
-		// and following the examples above
-		Subparser queryHeadingParser = subparsers.addParser("query_heading")
-				.setDefault("func", new Exec(Main::runQueryHeadingWeights)).help("Queries Lucene database.");
-		queryHeadingParser.addArgument("query_type")
-				.choices("page", "section", "just_the_page", "just_the_lowest_heading", "interior_heading",
-						"word_embedding")
-				.help("\tpage: Page of paragraph corpus\n" + "\tsection: Section of paragraph corpus\n"
-						+ "\tjust_the_page: Page name query.\n" + "\tlowest_heading: Lowest heading of query\n"
-						+ "\tinterior_heading: Interior heading of query.\n"
-						+ "\tword_embedding: Word embedding on the query headers.");
-		queryHeadingParser.addArgument("index").help("Location of Lucene index directory.");
-		queryHeadingParser.addArgument("query_file").help("Location of the query file (.cbor)");
-		queryHeadingParser.addArgument("--out") // -- means it's not positional
-				.setDefault("query_results.run") // If no --out is supplied,
+		// Argument parser for Paragraph Similarity (Added By Bindu)
+
+		Subparser paragraphSimilarityParser = subparsers.addParser("paragraph_similarity")
+				.setDefault("func", new Exec(Main::runParagraphSimilarity)).help("Queries Lucene database.");
+
+		paragraphSimilarityParser.addArgument("index").help("Location of Lucene index directory.");
+		paragraphSimilarityParser.addArgument("query_file").help("Location of the query file (.cbor)");
+		paragraphSimilarityParser.addArgument("--out") // -- means it's not
+														// positional
+				.setDefault("paragraph_similarity.run") // If no --out is
+														// supplied,
+				// defaults to
+				// paragraph_similarity.txt
+				.help("The name of the trec_eval compatible run file to write. (default: paragraph_similarity.run)");
+
+		// Argument parser for TFIDF Similarity (Added By Bindu)
+		Subparser tfidfSimilarityParser = subparsers.addParser("tfidf_similarity")
+				.setDefault("func", new Exec(Main::runTfidfSimilarity)).help("Queries Lucene database.");
+
+		tfidfSimilarityParser.addArgument("index").help("Location of Lucene index directory.");
+		tfidfSimilarityParser.addArgument("query_file").help("Location of the query file (.cbor)");
+		tfidfSimilarityParser.addArgument("--out") // -- means it's not
+													// positional
+				.setDefault("tfidf_similarity.run") // If no --out is supplied,
 													// defaults to
 													// query_results.txt
-				.help("The name of the trec_eval compatible run file to write. (default: query_results.run)");
+				.help("The name of the trec_eval compatible run file to write. (default: tfidf_similarity.run)");
+
+		// Argument parser for Entity Similarity
+		Subparser entitySimilarityParser = subparsers.addParser("entitySimilarity")
+				.setDefault("func", new Exec(Main::runEntitySimilarity)).help("Use EntitySimilarity");
+		entitySimilarityParser.addArgument("query_choice").choices("page", "section")
+				.help("\tpage: Page of paragraph corpus\n" + "\tsection: Section of paragraph corpus\n");
+		entitySimilarityParser.addArgument("multi_thread").choices("true", "false").setDefault("false")
+				.help("\ttrue: Run Multi Thread function. (Not Stable)\n" + "\tfalse: Use normal function\n");
+
+		entitySimilarityParser.addArgument("index").help("Location of Lucene index directory.");
+		entitySimilarityParser.addArgument("abstract").help("Location of Lucene entity abstract index directory.");
+		entitySimilarityParser.addArgument("query_file").help("Location of the query file (.cbor)");
+		entitySimilarityParser.addArgument("--out").setDefault("Entity-Similarity.run")
+				.help("The name of the trec_eval compatible run file to write. (default: Entity-Similarity.run)");
+
+		Subparser paragraphwithwordnet;
+		paragraphwithwordnet = subparsers.addParser("paragraph_wordnet")
+				.setDefault("func", new Exec(Main::runParagraphWordnet)).help("Paragraph Wordnet Similarity");
+		paragraphwithwordnet.addArgument("index").help("Location of Lucene index directory.");
+		paragraphwithwordnet.addArgument("query_file").help("Location of the query file (.cbor)");
+		paragraphwithwordnet.addArgument("outputLocation") // -- means it's not
+															// positional
+				.help("The name of the trec_eval compatible run file to write. (default:paragraph_wordnet.run)");
 
 		// Argument parser for Query Expansion
 		Subparser queryExpansionParser = subparsers.addParser("query_expansion")
@@ -95,69 +177,143 @@ public class Main {
 				// query_results.txt
 				.help("The name of the trec_eval compatible run file to write. (default: query_results.run)");
 
-		Subparser bigramParser = subparsers.addParser("frequent_bigram")
-				.setDefault("func", new Exec(Main::runFreqBigram)).help("Queries Lucene database.");
-		bigramParser.addArgument("query_type").choices("page", "section")
+		// Argument parser for Query RM Query Expansion
+		Subparser query_RM_QE_Parser = subparsers.addParser("query_rm_qe")
+				.setDefault("func", new Exec(Main::runQuery_RM_QE))
+				.help("Use Query Entity Relevance Model + Query Expansion");
+		query_RM_QE_Parser.addArgument("query_type").choices("page", "section")
 				.help("\tpage: Page of paragraph corpus\n" + "\tsection: Section of paragraph corpus\n");
-		bigramParser.addArgument("index").help("Location of Lucene index directory.");
-		bigramParser.addArgument("query_file").help("Location of the query file (.cbor)");
-		bigramParser.addArgument("--out") // -- means it's not
-											// positional
-				.setDefault("query_results.run") // If no --out is supplied,
+		query_RM_QE_Parser.addArgument("multi_thread").choices("true", "false").setDefault("false")
+				.help("\ttrue: Run Multi Thread function. (Not Stable)\n" + "\tfalse: Use normal function\n");
+
+		query_RM_QE_Parser.addArgument("index").help("Location of Lucene index directory.");
+		query_RM_QE_Parser.addArgument("abstract").help("Location of Lucene entity abstract index directory.");
+		query_RM_QE_Parser.addArgument("query_file").help("Location of the query file (.cbor)");
+		query_RM_QE_Parser.addArgument("--out") // -- means it's not
+												// positional
+				.setDefault("query_rm_qe_results.run") // If no --out is
+														// supplied,
 				// defaults to
 				// query_results.txt
-				.help("The name of the trec_eval compatible run file to write. (default: query_results.run)");
+				.help("The name of the trec_eval compatible run file to write. (default: query_rm_qe_results.run)");
 
+		// Argument parser for Doc RM Query Expansion
+		Subparser doc_RM_QE_Parser = subparsers.addParser("doc_rm_qe").setDefault("func", new Exec(Main::runDoc_RM_QE))
+				.help("Use Document Entity Relevance Model +Query Expansion");
+		doc_RM_QE_Parser.addArgument("query_type").choices("page", "section")
+				.help("\tpage: Page of paragraph corpus\n" + "\tsection: Section of paragraph corpus\n");
+		doc_RM_QE_Parser.addArgument("index").help("Location of Lucene index directory.");
+		doc_RM_QE_Parser.addArgument("query_file").help("Location of the query file (.cbor)");
+		doc_RM_QE_Parser.addArgument("--out") // -- means it's not
+												// positional
+				.setDefault("doc_rm_qe_results.run") // If no --out is supplied,
+				// defaults to
+				// query_results.txt
+				.help("The name of the trec_eval compatible run file to write. (default: doc_rm_qe_results.run)");
 
-		// Graph Builder
-		Subparser graphBuilderParser = subparsers.addParser("graph_builder")
-				.setDefault("func", new Exec(Main::runGraphBuilder))
-				.help("Creates bipartite graph between entities and paragraphs, stored in a MapDB file:" +
-						"graph_database.db");
+		// Argument parser for NLP query variation
+		Subparser nlp_query_Parser = subparsers.addParser("nlp_query_variation")
+				.setDefault("func", new Exec(Main::runNLP_query_variation))
+				.help("Use NLP + entities relations relevance method.");
+		nlp_query_Parser.addArgument("query_type").choices("page", "section")
+				.help("\tpage: Page of paragraph corpus\n" + "\tsection: Section of paragraph corpus\n");
+		nlp_query_Parser.addArgument("multi_thread").choices("true", "false").setDefault("false")
+				.help("\ttrue: Run Multi Thread function. \n" + "\tfalse: Use normal function\n");
 
-		graphBuilderParser.addArgument("index")
-				.help("Location of the Lucene index directory");
+		nlp_query_Parser.addArgument("index").help("Location of Lucene index directory.");
+		nlp_query_Parser.addArgument("query_file").help("Location of the query file (.cbor)");
+		nlp_query_Parser.addArgument("--out") // -- means it's not
+												// positional
+				.setDefault("nlp_query_results.run") // If no --out is
+														// supplied,
+				// defaults to
+				// query_results.txt
+				.help("The name of the trec_eval compatible run file to write. (default: nlp_query_results.run)");
 
-		// Ranklib Query
-		Subparser ranklibQueryParser = subparsers.addParser("ranklib_query")
-				.setDefault("func", new Exec(Main::runRanklibQuery))
-				.help("Runs queries using weighted combinations of features trained by RankLib.");
+		// // Gram
+		// Subparser gramParser =
+		// subparsers.addParser("gram_indexer").setDefault("func", new
+		// Exec(Main::runGram))
+		// .help("Indexes -gram models for paragraphCorpus. See Readme for
+		// further details.");
+		//
+		// gramParser.addArgument("corpus").help("Location of paragraph corpus
+		// to index.");
+		//
+		// gramParser.addArgument("--database").setDefault("gram")
+		// .help("Name of the indexed Lucene database to creature (default is
+		// gram)");
+		//
+		// // Abstract Indexer
+		// Subparser abstractParser = subparsers.addParser("abstract_indexer")
+		// .setDefault("func", new Exec(Main::runAbstract))
+		// .help("Creates a Lucene index of entities, where abstract are derived
+		// from first three paragraphs."
+		// + "See Readme for further details.");
+		// abstractParser.addArgument("corpus").help("Location of paragraph
+		// corpus to index.");
 
-		ranklibQueryParser.addArgument("method")
-				.help("The type of method to use when querying (see readme).")
-				.choices("entity_similarity", "average_query", "split_sections", "mixtures", "combined",
-						"lm_mercer", "lm_dirichlet");
+		// -----------------------------------Added on 22nd April By Bindu
+		// -----------------------------------------
 
-		ranklibQueryParser.addArgument("index").help("Location of Lucene index directory.");
-		ranklibQueryParser.addArgument("query").help("Location of query file (.cbor)");
-		ranklibQueryParser.addArgument("--out")
-				.setDefault("query_results.run")
-				.help("Specifies the output name of the run file.");
-		ranklibQueryParser.addArgument("--graph_database")
-				.setDefault("")
-				.help("(only used for mixtures method): Location of graph_database.db file.");
+		// Argument parser for Contextual Similarity with Query Expansion
+		Subparser ContextSimilarityQueryExpanParser = subparsers.addParser("context_queryeexpansion")
+				.setDefault("func", new Exec(Main::runConQuerExpansion))
+				.help("Use Contextual Similarity with Query expansion");
+		ContextSimilarityQueryExpanParser.addArgument("query_choice").choices("page")
+				.help("\tpage: Page of paragraph corpus\n");
+		ContextSimilarityQueryExpanParser.addArgument("multi_thread").choices("true", "false").setDefault("false")
+				.help("\ttrue: Run Multi Thread function. (Not Stable)\n" + "\tfalse: Use normal function\n");
 
-		// Ranklib Trainer
-		Subparser ranklibTrainerParser = subparsers.addParser("ranklib_trainer")
-				.setDefault("func", new Exec(Main::runRanklibTrainer))
-				.help("Scores using methods and writes features to a RankLib compatible file for use with training.");
+		ContextSimilarityQueryExpanParser.addArgument("index").help("Location of Lucene index directory.");
+		ContextSimilarityQueryExpanParser.addArgument("abstract")
+				.help("Location of Lucene entity abstract index directory.");
+		ContextSimilarityQueryExpanParser.addArgument("query_file").help("Location of the query file (.cbor)");
+		ContextSimilarityQueryExpanParser.addArgument("--out").setDefault("ContextQuerySimilarity.run")
+				.help("The name of the trec_eval compatible run file to write. (default: ContextQuerySimilarity.run)");
 
-		ranklibTrainerParser.addArgument("method")
-				.help("The type of method to use when training (see readme).")
-				.choices("entity_similarity", "average_query", "split_sections", "mixtures", "combined",
-						"lm_mercer", "lm_dirichlet");
-		ranklibTrainerParser.addArgument("index").help("Location of the Lucene index directory");
-		ranklibTrainerParser.addArgument("query").help("Location of query file (.cbor)");
-		ranklibTrainerParser.addArgument("qrel").help("Locations of matching qrel file.");
-		ranklibTrainerParser.addArgument("--out")
-				.setDefault("ranklib_features.txt")
-				.help("Output name for the RankLib compatible feature file.");
-		ranklibTrainerParser.addArgument("--graph_database")
-				.setDefault("")
-				.help("(only used for mixtures method): Location of graph_database.db file.");
+		// Argument parser for top_k_treecontextualsimilarity (Added By Bindu)
 
+		Subparser TopktreeConSimParser = subparsers.addParser("top_k_treecontextualsimilarity")
+				.setDefault("func", new Exec(Main::runtopktreeContSim))
+				.help("Run top k tree contextualSimilarity Passer");
 
+		TopktreeConSimParser.addArgument("index").help("Location of Lucene index directory.");
+		TopktreeConSimParser.addArgument("query_file").help("Location of the query file (.cbor)");
+		TopktreeConSimParser.addArgument("--out").setDefault("topk_treeConSimParser.run")
+				.help("The name of the trec_eval compatible run file to write. (default: topk_treeConSimParser.run)");
+
+		// Argument parser for ParaRank With DependencyParser
+
+		Subparser ParaRankWithDepParser = subparsers.addParser("pararank_with_depparser")
+				.setDefault("func", new Exec(Main::runParaGraphRankWithDepParser))
+				.help(" Paragraph Ranking with dependency Parser");
+
+		ParaRankWithDepParser.addArgument("index").help("Location of Lucene index directory.");
+		ParaRankWithDepParser.addArgument("query_file").help("Location of the query file (.cbor)");
+		ParaRankWithDepParser.addArgument("--out").setDefault("pararankdepparser.run")
+				.help("The name of the trec_eval compatible run file to write. (default: pararankdepparser.run)");
+
+		// Abstract Indexer
+		Subparser abstractParser = subparsers.addParser("abstract_indexer")
+				.setDefault("func", new Exec(Main::runAbstract))
+				.help("Creates a Lucene index of entities, where abstract are derived from first three paragraphs."
+						+ "See Readme for further details.");
+		abstractParser.addArgument("corpus").help("Location of paragraph corpus to index.");
+
+		MasterExperiment.Companion.addExperiments(subparsers);
+		LaunchSparqlDownloader.Companion.addExperiments(subparsers);
+		LaunchTopicDecomposer.Companion.addExperiments(subparsers);
+
+		// ****************** Bindu Parser completed
+		// ******************************************
 		return parser;
+	}
+
+	private static void runAbstract(Namespace params) {
+		String corpusFile = params.getString("corpus");
+		KotlinAbstractExtractor extractor = new KotlinAbstractExtractor("abstract");
+		extractor.getAbstracts(corpusFile);
 	}
 
 	private static void runIndexer(Namespace params) {
@@ -168,9 +324,9 @@ public class Main {
 		try {
 			IndexData.indexAllData(indexLocation, corpusFile, spotlight_location);
 		} catch (CborException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
 		} catch (IOException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
 		}
 	}
 
@@ -188,8 +344,119 @@ public class Main {
 
 			qCreator.writeRankings(queryFile, out);
 		} catch (IOException e) {
+			logger.error(e.getMessage());
+		}
+	}
+
+	// Runs Bindu Paragraph Similarity Variation
+	public static void runParagraphSimilarity(Namespace params) {
+		try {
+			String indexLocation = params.getString("index");// Paragraph Corpus
+																// indexing
+			String queryLocation = params.getString("query_file"); // outlines-cbor
+																	// file
+			String rankingOutputLocation = params.getString("out");
+
+			ArrayList<Data.Page> pagelist = getAllPageFromPath(indexLocation, queryLocation, rankingOutputLocation);
+
+			ParagraphSimilarity ps = new ParagraphSimilarity(pagelist, 100, indexLocation);
+			ps.writeParagraphScore(rankingOutputLocation);
+
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+		}
+
+	}
+
+	// Run for Entity Similarity
+
+	private static void runEntitySimilarity(Namespace params) {
+		try {
+			String indexLocation = params.getString("index");
+			String abstract_indexLocation = params.getString("abstract");
+			String queryFile = params.getString("query_file");
+			String queryChoice = params.getString("query_choice");
+			String multi = params.getString("multi_thread");
+			Boolean runMultiThread = Boolean.valueOf(multi.toLowerCase());
+			String out = params.getString("out");
+			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
+			if (queryChoice.equalsIgnoreCase("page")) {
+				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
+
+				if (runMultiThread) {
+					ArrayList<String> page_run = EntitySimilarity.getResultsWithMultiThread(pages_queries,
+							indexLocation, abstract_indexLocation);
+					ProjectUtils.writeToFile(out, page_run);
+				} else {
+					ArrayList<String> page_run = EntitySimilarity.getEntityResults(pages_queries, indexLocation,
+							abstract_indexLocation);
+					ProjectUtils.writeToFile(out, page_run);
+				}
+
+			} else if (queryChoice.equalsIgnoreCase("section")) {
+				ArrayList<String> section_queries = queryBuilder.getAllSectionQueries();
+
+				if (runMultiThread) {
+					ArrayList<String> section_run = EntitySimilarity.getResultsWithMultiThread(section_queries,
+							indexLocation, abstract_indexLocation);
+					ProjectUtils.writeToFile(out, section_run);
+				} else {
+					ArrayList<String> section_run = EntitySimilarity.getEntityResults(section_queries, indexLocation,
+							abstract_indexLocation);
+					ProjectUtils.writeToFile(out, section_run);
+				}
+
+			} else {
+				System.out.println("Error: QueryChoice was not recognized");
+			}
+
+		} catch (Throwable e) {
+			logger.error(e.getMessage());
+		}
+	}
+
+	// Runs Bindu Tfidf(lnc.ltc) SImilarity Variation
+
+	public static void runTfidfSimilarity(Namespace params) {
+		try {
+			String indexLocation = params.getString("index"); // Paragraph
+																// Corpus
+																// indexing
+			String queryLocation = params.getString("query_file");
+			String rankingOutputLocation = params.getString("out"); // where
+																	// Tf-IDF
+																	// output
+																	// should
+																	// be
+			ArrayList<Data.Page> pagelist = getAllPageFromPath(indexLocation, queryLocation, rankingOutputLocation);
+
+			TfIdfSimilarity tfidf = new TfIdfSimilarity(pagelist, 100, indexLocation);
+			tfidf.writeTFIDFScoresTo(rankingOutputLocation);
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+
+		}
+	}
+
+	// This function is being used for running query
+	public static void runParagraphWordnet(Namespace params) {
+		try {
+			String index = params.getString("index");
+			String queryLocation = params.getString("query_file");
+			String rankingOutputLocation = params.getString("outputLocation");
+
+			ParagraphWithWordnet qbuilder = getQueryBuilder(index, queryLocation, rankingOutputLocation);
+			qbuilder.writeRankings(queryLocation, rankingOutputLocation);
+		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	// This function is being used for creating
+	public static ParagraphWithWordnet getQueryBuilder(String indexLocation, String queryLocation,
+			String rankingOutputLocation) throws IOException {
+
+		return new ParagraphWithWordnet(new StandardAnalyzer(), new BM25Similarity(), indexLocation);
 	}
 
 	// Runs Kevin's Query Expansion Variation
@@ -200,29 +467,29 @@ public class Main {
 			String queryType = params.getString("query_type");
 			String out = params.getString("out");
 			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
-			if (queryType == "pages") {
+			if (queryType.equalsIgnoreCase("page")) {
 				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
-				System.out.println("Page queries: " + pages_queries.size());
+				logger.info("Page queries: " + pages_queries.size());
 				ArrayList<String> page_run = QueryExpansion_variation.getSearchResult(pages_queries, index);
 				ProjectUtils.writeToFile(out, page_run);
 
-			} else if (queryType == "section") {
+			} else if (queryType.equalsIgnoreCase("section")) {
 				ArrayList<String> section_queries = queryBuilder.getAllSectionQueries();
-				System.out.println("Section queries: " + section_queries.size());
+				logger.info("Section queries: " + section_queries.size());
 				ArrayList<String> section_run = QueryExpansion_variation.getSearchResult(section_queries, index);
 				ProjectUtils.writeToFile(out, section_run);
 
 			} else {
-				System.out.println("Error: QueryType not recognized.");
+				System.out.println("Error: QueryType not recognized. Got: " + queryType);
 			}
 
 		} catch (Throwable e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
 		}
 
 	}
 
-	// Run Kevin's Frequent Bigram Variation
+	// Runs Kevin's Frequent Bigram Variation
 	private static void runFreqBigram(Namespace params) {
 		try {
 			String index = params.getString("index");
@@ -230,88 +497,217 @@ public class Main {
 			String queryType = params.getString("query_type");
 			String out = params.getString("out");
 			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
-			if (queryType == "pages") {
+			if (queryType.equalsIgnoreCase("page")) {
 				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
-				System.out.println("Page queries: " + pages_queries.size());
+				logger.info("Page queries: " + pages_queries.size());
 				ArrayList<String> page_run = FreqBigram_variation.getSearchResult(pages_queries, index);
 				ProjectUtils.writeToFile(out, page_run);
 
-			} else if (queryType == "section") {
+			} else if (queryType.equalsIgnoreCase("section")) {
 				ArrayList<String> section_queries = queryBuilder.getAllSectionQueries();
-				System.out.println("Section queries: " + section_queries.size());
+				logger.info("Section queries: " + section_queries.size());
 				ArrayList<String> section_run = FreqBigram_variation.getSearchResult(section_queries, index);
 				ProjectUtils.writeToFile(out, section_run);
 
 			} else {
-				System.out.println("Error: QueryType not recognized.");
+				logger.error("Error: QueryType not recognized. Got: " + queryType);
 			}
 
 		} catch (Throwable e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
 		}
 	}
 
-	// Runs Jordan's Graph Builder
-	private static void runGraphBuilder(Namespace namespace) {
-		String indexLocation = namespace.getString("index");
-		KotlinGraphBuilder graphBuilder = new KotlinGraphBuilder(indexLocation);
-		graphBuilder.run();
+	// Runs Kevin's Query Entity relevance model + query expansion method
+	private static void runQuery_RM_QE(Namespace params) {
+		try {
+			String index = params.getString("index");
+			String abstract_index = params.getString("abstract");
+			String queryFile = params.getString("query_file");
+			String queryType = params.getString("query_type");
+			String multi = params.getString("multi_thread");
+			Boolean runMultiThread = Boolean.valueOf(multi.toLowerCase());
+			String out = params.getString("out");
+			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
+			if (queryType.equalsIgnoreCase("page")) {
+				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
+				logger.info("Page queries: " + pages_queries.size());
+				if (runMultiThread) {
+					ArrayList<String> page_run = Query_RM_QE_variation.getResultsWithMultiThread(pages_queries, index,
+							abstract_index);
+					ProjectUtils.writeToFile(out, page_run);
+				} else {
+					ArrayList<String> page_run = Query_RM_QE_variation.getResults(pages_queries, index, abstract_index);
+					ProjectUtils.writeToFile(out, page_run);
+				}
+
+			} else if (queryType.equalsIgnoreCase("section")) {
+				ArrayList<String> section_queries = queryBuilder.getAllSectionQueries();
+				logger.info("Section queries: " + section_queries.size());
+				if (runMultiThread) {
+					ArrayList<String> section_run = Query_RM_QE_variation.getResultsWithMultiThread(section_queries,
+							index, abstract_index);
+					ProjectUtils.writeToFile(out, section_run);
+				} else {
+					ArrayList<String> section_run = Query_RM_QE_variation.getResults(section_queries, index,
+							abstract_index);
+					ProjectUtils.writeToFile(out, section_run);
+				}
+
+			} else {
+				logger.error("Error: QueryType not recognized. Got: " + queryType);
+			}
+
+		} catch (Throwable e) {
+			logger.error(e.getMessage());
+		}
 	}
 
+	// Runs Kevin's Document Entity Relevance Model + Query Expansion method
+	private static void runDoc_RM_QE(Namespace params) {
+		try {
+			String index = params.getString("index");
+			String queryFile = params.getString("query_file");
+			String queryType = params.getString("query_type");
+			String out = params.getString("out");
+			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
+			if (queryType.equalsIgnoreCase("page")) {
+				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
+				logger.info("Page queries: " + pages_queries.size());
+				ArrayList<String> page_run = Doc_RM_QE_variation.getResults(pages_queries, index);
+				ProjectUtils.writeToFile(out, page_run);
 
-	// Runs Jordan's Ranklib Trainer
-	private static void runRanklibTrainer(Namespace namespace) {
-		String indexLocation = namespace.getString("index");
-		String qrelLocation = namespace.getString("qrel");
-		String queryLocation = namespace.getString("query");
-		String graphLocation = namespace.getString("graph_database");
-		String out = namespace.getString("out");
-		String method = namespace.getString("method");
-		KotlinRankLibTrainer kotTrainer =
-				new KotlinRankLibTrainer(indexLocation, queryLocation, qrelLocation, graphLocation);
-		kotTrainer.train(method, out);
+			} else if (queryType.equalsIgnoreCase("section")) {
+				ArrayList<String> section_queries = queryBuilder.getAllSectionQueries();
+				logger.info("Section queries: " + section_queries.size());
+				ArrayList<String> section_run = Doc_RM_QE_variation.getResults(section_queries, index);
+				ProjectUtils.writeToFile(out, section_run);
+
+			} else {
+				logger.error("Error: QueryType not recognized. Got: " + queryType);
+			}
+
+		} catch (Throwable e) {
+			logger.error(e.getMessage());
+		}
 	}
 
+	// Run Kevin's NLP entities relations variation methods
+	private static void runNLP_query_variation(Namespace params) {
+		try {
+			String index = params.getString("index");
+			String queryFile = params.getString("query_file");
+			String queryType = params.getString("query_type");
+			String multi = params.getString("multi_thread");
+			Boolean runMultiThread = Boolean.valueOf(multi.toLowerCase());
+			String out = params.getString("out");
+			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
 
-	// Runs Jordan's Ranklib Query
-	private static void runRanklibQuery(Namespace namespace) {
-		String indexLocation = namespace.getString("index");
-		String queryLocation = namespace.getString("query");
-		String graphLocation = namespace.getString("graph_database");
-		String method = namespace.getString("method");
-		String out = namespace.getString("out");
-		KotlinRankLibTrainer kotTrainer =
-				new KotlinRankLibTrainer(indexLocation, queryLocation, "", graphLocation);
-		kotTrainer.runRanklibQuery(method, out);
+			if (queryType.equalsIgnoreCase("page")) {
+				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
+				logger.info("Page queries: " + pages_queries.size());
+				if (runMultiThread) {
+					ArrayList<String> page_run = NLP_query_variation.getResultsWithMultiThread(pages_queries, index);
+					ProjectUtils.writeToFile(out, page_run);
+				} else {
+					ArrayList<String> page_run = NLP_query_variation.getResults(pages_queries, index);
+					ProjectUtils.writeToFile(out, page_run);
+				}
+			} else if (queryType.equalsIgnoreCase("section")) {
+				ArrayList<String> section_queries = queryBuilder.getAllSectionQueries();
+				logger.info("Section queries: " + section_queries.size());
+				if (runMultiThread) {
+					ArrayList<String> section_run = NLP_query_variation.getResultsWithMultiThread(section_queries,
+							index);
+					ProjectUtils.writeToFile(out, section_run);
+				} else {
+					ArrayList<String> section_run = NLP_query_variation.getResults(section_queries, index);
+					ProjectUtils.writeToFile(out, section_run);
+				}
+			} else {
+				logger.error("Error: QueryType not recognized. Got: " + queryType);
+			}
+		} catch (Throwable e) {
+			logger.error(e.getMessage());
+		}
 	}
 
-	private static void runDemo(Namespace params) {
-		String indexLocation = params.getString("index");
-		String queryLocation = params.getString("query");
-		String method = params.getString("method");
+	// ******************************* Adding calling method which is mentioned
+	// in Parser call ( By Bindu ) ***********************
 
-		KotlinRanklibFormatter formatter = new KotlinRanklibFormatter(queryLocation, "", indexLocation);
+	// Run Contextual Query Expansion
 
-		// Your function must be cast using the signature below
-		Function3<? super String, ? super TopDocs, ? super IndexSearcher, ? extends List<Double>> exampleFunction = Main::testFunction;
+	private static void runConQuerExpansion(Namespace params) {
+		try {
+			String indexLocation = params.getString("index");
+			String abstract_indexLocation = params.getString("abstract");
+			String queryFile = params.getString("query_file");
+			String queryChoice = params.getString("query_choice");
+			String multi = params.getString("multi_thread");
+			Boolean runMultiThread = Boolean.valueOf(multi.toLowerCase());
+			String out = params.getString("out");
+			QueryBuilder queryBuilder = new QueryBuilder(queryFile);
+			if (queryChoice.equalsIgnoreCase("page")) {
+				ArrayList<String> pages_queries = queryBuilder.getAllpageQueries();
 
-		// This adds BM25's scores as a feature
-		formatter.addBM25(1.0, NormType.NONE);
+				if (runMultiThread) {
+					ArrayList<String> page_run = Contextual_QueryExpansion.TrueWithMultiThread(pages_queries,
+							indexLocation, abstract_indexLocation);
+					ProjectUtils.writeToFile(out, page_run);
+				} else {
+					ArrayList<String> page_run = Contextual_QueryExpansion.getContextualResults(pages_queries,
+							indexLocation, abstract_indexLocation);
+					ProjectUtils.writeToFile(out, page_run);
+				}
 
-		// And this adds your custom function/method that has the Function3
-		// signature listed above (just cast it)
-		formatter.addFeature(exampleFunction, 1.0, NormType.NONE);
+			} else {
+				System.out.println("Error: QueryType was not recognized");
+			}
 
-		// This will rerank queries by doing the following: sum the added
-		// features together (multiplied by weights)
-		// And then using these new scores, sort the TopDocs from highest to
-		// lowest
-		formatter.rerankQueries();
-
-		// This will write the reranked queries to a new trec_car compatible run
-		// file
-		formatter.writeQueriesToFile("test.run");
+		} catch (Throwable e) {
+			System.out.println(e.getMessage());
+		}
 	}
+
+	// Added on 22nd April By Bindu
+	public static void runtopktreeContSim(Namespace params) {
+		try {
+			String indexLocation = params.getString("index");
+			String queryLocation = params.getString("query_file");
+			String rankingOutputLocation = params.getString("out");
+
+			ArrayList<Data.Page> pagelist = getAllPageFromPath(indexLocation, queryLocation, rankingOutputLocation);
+
+			TopktreeContextualSimilarity ts = new TopktreeContextualSimilarity(pagelist, 100, indexLocation);
+			ts.writeContextualParagraphScore(rankingOutputLocation);
+
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+		}
+
+	}
+
+	// for Paragraph Ranking with Dependency parser with full tree with BM25
+	// Similarity
+	public static void runParaGraphRankWithDepParser(Namespace params) {
+		try {
+			String indexLocation = params.getString("index");
+			String queryLocation = params.getString("query_file");
+			String rankingOutputLocation = params.getString("out");
+
+			ArrayList<Data.Page> pagelist = getAllPageFromPath(indexLocation, queryLocation, rankingOutputLocation);
+
+			ParaRankWithDepParser ps = new ParaRankWithDepParser(pagelist, 100, indexLocation);
+			ps.writeParaRankWithDepParser(rankingOutputLocation);
+
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+		}
+
+	}
+
+	// ******************************** Completed on 22nd April ( By Bindu
+	// )****************************************
 
 	// This is an example of a method that is compatible with
 	// KotlinRanklibFormatter's addFeature
@@ -330,6 +726,7 @@ public class Main {
 	// Main class for project
 	public static void main(String[] args) {
 		System.setProperty("file.encoding", "UTF-8");
+		Logger.getRootLogger().setLevel(Level.ERROR);
 		ArgumentParser parser = createArgParser();
 
 		try {

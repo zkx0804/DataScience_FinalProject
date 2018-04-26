@@ -9,12 +9,9 @@ import org.apache.lucene.index.Term
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.TermQuery
 import org.apache.lucene.store.FSDirectory
-import org.mapdb.DBMaker
-import org.mapdb.Serializer
 import java.nio.file.Paths
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
-import kotlin.coroutines.experimental.buildIterator
 import kotlin.coroutines.experimental.buildSequence
 
 

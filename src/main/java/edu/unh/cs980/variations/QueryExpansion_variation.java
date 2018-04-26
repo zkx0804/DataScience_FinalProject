@@ -1,5 +1,8 @@
 package edu.unh.cs980.variations;
 
+import static edu.unh.cs980.KotUtils.CONTENT;
+import static edu.unh.cs980.KotUtils.PID;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
@@ -10,6 +13,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -27,23 +31,29 @@ import org.apache.lucene.store.FSDirectory;
 
 import edu.unh.cs980.utils.ProjectUtils;
 
-import static edu.unh.cs980.KotUtils.CONTENT;
-import static edu.unh.cs980.KotUtils.PID;
-
 public class QueryExpansion_variation {
 	private static int top_k_term = 5; // Include top k terms for QE
 	private static int top_k_doc = 10; // Initial top k documents for QE
 	private static int max_result = 100; // Max number for Lucene docs
 	private static QueryParser parser = new QueryParser(CONTENT, new StandardAnalyzer());
 
+	private static final Logger logger = Logger.getLogger(QueryExpansion_variation.class);
+
 	public static ArrayList<String> getSearchResult(ArrayList<String> queriesStr, String index_dir)
 			throws IOException, ParseException {
-		System.out.println("QueryExpansion ====> Retrieving results for " + queriesStr.size() + " queries...");
-		ArrayList<String> runFileStr = new ArrayList<String>();
 
+		// Create index searcher and pass to main method
 		IndexSearcher searcher = new IndexSearcher(
 				DirectoryReader.open(FSDirectory.open((new File(index_dir).toPath()))));
 		searcher.setSimilarity(new BM25Similarity());
+		return getSearchResult(queriesStr, searcher);
+	}
+
+	// Variant using existing IndexSearcher
+	public static ArrayList<String> getSearchResult(ArrayList<String> queriesStr, IndexSearcher searcher)
+			throws IOException, ParseException {
+		logger.info("QueryExpansion ====> Retrieving results for " + queriesStr.size() + " queries...");
+		ArrayList<String> runFileStr = new ArrayList<String>();
 
 		int duplicate = 0;
 		for (String queryStr : queriesStr) {
@@ -70,15 +80,13 @@ public class QueryExpansion_variation {
 						+ rankScore + " QueryExpansion";
 				if (runFileStr.contains(runStr)) {
 					duplicate++;
-					// System.out.println("Found duplicate: " + runStr);
 				} else {
 					runFileStr.add(runStr);
 				}
 			}
 		}
 
-		System.out.println(
-				"QueryExpansion ====> Got " + runFileStr.size() + " results. Found " + duplicate + " duplicates.");
+		logger.info("QueryExpansion ====> Got " + runFileStr.size() + " results. Found " + duplicate + " duplicates.");
 
 		return runFileStr;
 	}
@@ -97,7 +105,7 @@ public class QueryExpansion_variation {
 			// Get single term list without stopwords
 			ArrayList<String> unigram_list = analyzeByUnigram(paraBody);
 			if (unigram_list.isEmpty()) {
-				System.out.println("Can't get terms list from : " + paraBody);
+				logger.debug("Can't get terms list from : " + paraBody);
 			}
 			int rank = i + 1;
 			// HashMap<String, Float> term_score;
@@ -128,12 +136,11 @@ public class QueryExpansion_variation {
 		if (!rm_list.isEmpty()) {
 			String rm_str = String.join(" ", rm_list);
 			Query q = parser.parse(QueryParser.escape(initialQ) + "^0.6" + QueryParser.escape(rm_str) + "^0.4");
-			// System.out.println(initialQ + " =====> " + initialQ + " " +
-			// rm_str);
+			logger.debug(initialQ + " =====> " + initialQ + " " + rm_str);
 			return q;
 		} else {
 			Query q = parser.parse(QueryParser.escape(initialQ));
-			// System.out.println(initialQ + " =====> " + initialQ);
+			logger.debug(initialQ + " =====> " + initialQ);
 
 			return q;
 		}
@@ -156,7 +163,7 @@ public class QueryExpansion_variation {
 
 	private static ArrayList<String> analyzeByUnigram(String inputStr) throws IOException {
 		Reader reader = new StringReader(inputStr);
-		// System.out.println("Input text: " + inputStr);
+		logger.debug("Input text: " + inputStr);
 		ArrayList<String> strList = new ArrayList<String>();
 		Analyzer analyzer = new UnigramAnalyzer();
 		TokenStream tokenizer = analyzer.tokenStream(CONTENT, inputStr);
@@ -166,7 +173,6 @@ public class QueryExpansion_variation {
 		while (tokenizer.incrementToken()) {
 			String token = charTermAttribute.toString();
 			strList.add(token);
-			// System.out.println(token);
 		}
 		tokenizer.end();
 		tokenizer.close();

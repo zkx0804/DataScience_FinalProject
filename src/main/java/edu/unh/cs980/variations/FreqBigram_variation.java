@@ -1,11 +1,15 @@
 package edu.unh.cs980.variations;
 
+import static edu.unh.cs980.KotUtils.CONTENT;
+import static edu.unh.cs980.KotUtils.PID;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -23,15 +27,13 @@ import org.apache.lucene.store.FSDirectory;
 
 import edu.unh.cs980.utils.ProjectUtils;
 
-import static edu.unh.cs980.KotUtils.CONTENT;
-import static edu.unh.cs980.KotUtils.PID;
-
 public class FreqBigram_variation {
 	private static int max_results = 100;
+	private static final Logger logger = Logger.getLogger(FreqBigram_variation.class);
 
 	public static ArrayList<String> getSearchResult(ArrayList<String> queriesStr, String index_dir)
 			throws IOException, ParseException {
-		System.out.println("Frequent Bigram ====> Retrieving results for " + queriesStr.size() + " queries...");
+		logger.info("Frequent Bigram ====> Retrieving results for " + queriesStr.size() + " queries...");
 		ArrayList<String> runFileStr = new ArrayList<String>();
 
 		IndexSearcher searcher = new IndexSearcher(
@@ -50,7 +52,7 @@ public class FreqBigram_variation {
 			HashMap<String, Float> score_map = new HashMap<String, Float>();
 
 			if (bigram_list.isEmpty()) {
-				System.out.println(queryStr + " ===>Single Word query found.");
+				logger.debug(queryStr + " ===>Single Word query found.");
 				bigram_list.add(queryStr);
 			}
 
@@ -86,8 +88,8 @@ public class FreqBigram_variation {
 				Document doc = searcher.doc(score.doc);
 				String paraId = doc.getField(PID).stringValue();
 				// if (test == 0) {
-				// System.out.println(doc.getField("content").stringValue());
-				// System.out.println(doc.getField("bigram").stringValue());
+				// logger.debug(doc.getField("content").stringValue());
+				// logger.debug(doc.getField("bigram").stringValue());
 				// }
 				float rankScore = score.score;
 
@@ -107,7 +109,7 @@ public class FreqBigram_variation {
 				rank++;
 				if (runFileStr.contains(runStr)) {
 					duplicate++;
-					// System.out.println("Found duplicate: " + runStr);
+					// logger.debug("Found duplicate: " + runStr);
 				} else {
 					runFileStr.add(runStr);
 				}
@@ -115,7 +117,7 @@ public class FreqBigram_variation {
 
 		}
 
-		System.out.println("Frequent Bigram ====> Got " + runFileStr.size() + " results.");
+		logger.info("Frequent Bigram ====> Got " + runFileStr.size() + " results.");
 		return runFileStr;
 	}
 
@@ -130,7 +132,6 @@ public class FreqBigram_variation {
 			if (token.contains(" ")) {
 				strList.add(token);
 			}
-			// System.out.println(token);
 		}
 		tokenizer.end();
 		tokenizer.close();
